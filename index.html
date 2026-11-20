@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Estação Meteorológica IoT - UNIP</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f1f5f9; color: #0f172a; margin: 0; padding: 30px 25px; }
+  .container { max-width: 1280px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #cbd5e1; padding-bottom: 16px; margin-bottom: 28px; }
+  h1 { font-size: 26px; font-weight: 800; margin: 0; color: #1e293b; }
+  .badge { font-size: 14px; background: #dcfce7; color: #166534; padding: 6px 14px; border-radius: 20px; font-weight: 700; transition: 0.3s; }
+  .badge.offline { background: #fee2e2; color: #991b1b; }
+  .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+  @media (min-width: 768px) { .grid { grid-template-columns: repeat(3, 1fr); } .full { grid-column: span 3; } }
+  .card { background: #fff; padding: 24px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: space-between; }
+  .card h2 { margin: 0 0 10px 0; font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.6px; }
+  .card .val { margin: 0 0 18px 0; font-size: 36px; font-weight: 800; color: #0f172a; }
+  .spark { width: 100%; height: 42px; }
+  .db { background: #0f172a; border-color: #1e293b; }
+  .db-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .db-header h2 { color: #94a3b8; margin: 0; font-size: 14px; }
+  .btn-reset { background: #ef4444; color: #fff; border: none; cursor: pointer; font-size: 12px; font-weight: 700; padding: 8px 14px; border-radius: 8px; }
+  .btn-reset:hover { background: #dc2626; }
+  .db pre { margin: 0; font-size: 14px; color: #e2e8f0; font-family: ui-monospace, monospace; white-space: pre-wrap; line-height: 1.7; }
+  #alerta { display: none; background: #fee2e2; color: #991b1b; border: 2px solid #f87171; padding: 16px; border-radius: 12px; font-weight: 700; font-size: 16px; }
+  .mapa { width: 100%; height: 280px; border: 0; border-radius: 12px; margin-top: 14px; }
+  .mapa-link { font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📊 Estação Meteorológica IoT - Monitoramento Urbano</h1>
+    <span class="badge" id="status">● Conectando...</span>
+  </header>
+  <div class="grid">
+    <div id="alerta" class="full">⚠️ Alerta Crítico: Nível elevado de gases ou precipitação intensa detectado.</div>
+    
+    <div class="card"><div><h2>Temperatura (DHT22)</h2><div class="val" id="v-temp">-- °C</div></div><div class="spark" id="g-temp"></div></div>
+    <div class="card"><div><h2>Umidade Relativa</h2><div class="val" id="v-umid">-- %</div></div><div class="spark" id="g-umid"></div></div>
+    <div class="card"><div><h2>Pressão Atmosférica (BMP280)</h2><div class="val" id="v-pres">-- hPa</div></div><div class="spark" id="g-pres"></div></div>
+    <div class="card"><div><h2>Luminosidade (LDR)</h2><div class="val" id="v-ldr" style="font-size:28px;">--</div></div><div class="spark" id="g-ldr"></div></div>
+    <div class="card"><div><h2>Qualidade do Ar (MQ135)</h2><div class="val" id="v-gas">-- PPM</div></div><div class="spark" id="g-gas"></div></div>
+
+    <div class="card db full">
+      <div class="db-header">
+        <h2>Banco de Dados NoSQL em Nuvem (Firebase Realtime)</h2>
+        <button class="btn-reset" onclick="limparLogs()">Limpar Logs</button>
+      </div>
+      <pre id="logs">Carregando histórico...</pre>
+    </div>
+
+    <div class="card full">
+      <h2>Coordenadas Geográficas da Estação (RF03)</h2>
+      <p style="font-size:15px; color:#334155; margin:0; font-weight:500;">📍 Latitude: -23.56534 • Longitude: -46.65115</p>
+      <iframe class="mapa" loading="lazy" title="Localização da estação"
+        src="https://www.openstreetmap.org/export/embed.html?bbox=-46.65615%2C-23.57034%2C-46.64615%2C-23.56034&amp;layer=mapnik&amp;marker=-23.56534%2C-46.65115"></iframe>
+      <div class="mapa-link"><a href="https://www.openstreetmap.org/?mlat=-23.56534&amp;mlon=-46.65115#map=16/-23.56534/-46.65115" target="_blank" rel="noopener">Abrir mapa em tela cheia</a></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const FIREBASE_URL = "https://estacao-iot-unip-default-rtdb.firebaseio.com/";
+  let ultimoDadoStr = "";
+  let ciclosSemMudanca = 0;
+
+  function desenharSVG(valores, cor) {
+    if (!valores || valores.length < 2) {
+      return `<svg width="100%" height="42" viewBox="0 0 100 42" preserveAspectRatio="none"><line x1="0" y1="21" x2="100" y2="21" stroke="${cor}" stroke-width="2.5" stroke-dasharray="4,4" opacity="0.5"/></svg>`;
+    }
+    const min = Math.min(...valores), max = Math.max(...valores);
+    const amp = (max - min) || 1;
+    const passo = 100 / (valores.length - 1);
+    const pts = valores.map((v, i) => `${(i * passo).toFixed(1)},${(36 - (((v - min) / amp) * 30)).toFixed(1)}`).join(" ");
+    return `<svg width="100%" height="42" viewBox="0 0 100 42" preserveAspectRatio="none"><polyline fill="none" stroke="${cor}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${pts}"/></svg>`;
+  }
+
+  function resetarGraficosVisuais() {
+    document.getElementById('g-temp').innerHTML = desenharSVG([], "#f97316");
+    document.getElementById('g-umid').innerHTML = desenharSVG([], "#10b981");
+    document.getElementById('g-pres').innerHTML = desenharSVG([], "#0ea5e9");
+    document.getElementById('g-ldr').innerHTML = desenharSVG([], "#eab308");
+    document.getElementById('g-gas').innerHTML = desenharSVG([], "#8b5cf6");
+  }
+
+  async function limparLogs() {
+    await fetch(`${FIREBASE_URL}/historico.json`, { method: 'DELETE' });
+    ultimoDadoStr = "";
+    document.getElementById('logs').innerText = "Histórico limpo. Aguardando nova leitura do ESP32...";
+    resetarGraficosVisuais();
+  }
+
+  async function atualizar() {
+    try {
+      // Baixa só os 15 registros mais recentes (antes baixava o histórico inteiro a cada 2,5 s)
+      const resHist = await fetch(`${FIREBASE_URL}/historico.json?orderBy="$key"&limitToLast=15`);
+      if (!resHist.ok) throw new Error("Erro HTTP: " + resHist.status);
+      
+      const hObj = await resHist.json();
+      const badge = document.getElementById('status');
+      
+      if (hObj) {
+        // Ordena pela chave (IDs do Firebase são cronológicos), pois o retorno filtrado pode vir sem ordem
+        const listaCompleta = Object.entries(hObj)
+          .sort((a, b) => a[0] < b[0] ? -1 : (a[0] > b[0] ? 1 : 0))
+          .map(e => e[1]);
+        const lista = listaCompleta.slice(-15);
+        const d = lista[lista.length - 1];
+        
+        if (d.data_hora === ultimoDadoStr) {
+          ciclosSemMudanca++;
+        } else {
+          ultimoDadoStr = d.data_hora;
+          ciclosSemMudanca = 0;
+        }
+
+        if (ciclosSemMudanca >= 4) {
+          badge.innerText = "● Offline (ESP32 Parado)";
+          badge.classList.add("offline");
+        } else {
+          badge.innerText = "● Online (Tempo Real)";
+          badge.classList.remove("offline");
+        }
+        
+        document.getElementById('v-temp').innerText = `${Number(d.temp).toFixed(1)} °C`;
+        document.getElementById('v-umid').innerText = `${Number(d.umid).toFixed(1)} %`;
+        document.getElementById('v-pres').innerText = `${Number(d.pres).toFixed(1)} hPa`;
+        document.getElementById('v-ldr').innerText = d.ldr_txt;
+        document.getElementById('v-gas').innerText = `${d.gas} PPM`;
+        document.getElementById('alerta').style.display = (d.gas > 1000 || d.chuva > 10) ? "block" : "none";
+
+        document.getElementById('g-temp').innerHTML = desenharSVG(lista.map(x => Number(x.temp)), "#f97316");
+        document.getElementById('g-umid').innerHTML = desenharSVG(lista.map(x => Number(x.umid)), "#10b981");
+        document.getElementById('g-pres').innerHTML = desenharSVG(lista.map(x => Number(x.pres)), "#0ea5e9");
+        document.getElementById('g-ldr').innerHTML = desenharSVG(lista.map(x => Number(x.ldr_val)), "#eab308");
+        document.getElementById('g-gas').innerHTML = desenharSVG(lista.map(x => Number(x.gas)), "#8b5cf6");
+
+        const ultimos8 = lista.slice(-8);
+        document.getElementById('logs').innerText = ultimos8.map(x => {
+          const luzLimpa = x.ldr_txt ? x.ldr_txt.split(" ")[0] : "N/A";
+          return `[${x.data_hora}] T:${Number(x.temp).toFixed(1)}°C | U:${Number(x.umid).toFixed(1)}% | P:${Number(x.pres).toFixed(1)}hPa | Luz:${luzLimpa} | Ar:${x.gas}PPM.`;
+        }).join("\n");
+      } else {
+        badge.innerText = "● Aguardando Dados...";
+        badge.classList.remove("offline");
+        document.getElementById('logs').innerText = "Banco vazio. Aguardando primeiras leituras do ESP32...";
+        resetarGraficosVisuais();
+      }
+    } catch (e) {
+      document.getElementById('status').innerText = "● Sem Conexão (" + e.message + ")";
+      document.getElementById('status').classList.add("offline");
+    }
+  }
+
+  setInterval(atualizar, 2500);
+  atualizar();
+</script>
+</body>
+</html>
