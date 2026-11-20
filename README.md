@@ -53,6 +53,9 @@ A alimentação do circuito utiliza uma fonte externa com seletor de tensão con
 ### Dashboard Web em Tempo Real
 ![Dashboard Web](Dashboard.png)
 
+### GIF DEMONSTRATIVO
+![Dashboard Web](Dashboard.gif)
+
 ---
 
 ## 👥 Integrantes
