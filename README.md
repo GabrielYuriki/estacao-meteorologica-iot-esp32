@@ -50,6 +50,9 @@ A alimentação do circuito utiliza uma fonte externa com seletor de tensão con
 ### Montagem Física (Bancada)
 ![Circuito ESP32](Protoboard.png)
 
+### Dashboard Web em Tempo Real
+![Dashboard Web](Dashboard.png)
+
 ---
 
 ## 👥 Integrantes
